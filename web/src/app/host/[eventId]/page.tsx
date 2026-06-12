@@ -34,12 +34,20 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
 
   if (!event) return <p className="text-faded">Loading…</p>;
 
+  async function reroll() {
+    setBusy(true);
+    await fetch(`/api/events/${eventId}/regenerate`, { method: "POST" });
+    await load();
+    setBusy(false);
+  }
+
   if (event.status === "generating") return <GeneratingView event={event} />;
   if (event.status === "failed")
     return (
       <div className="card border-red-900">
         <h1 className="font-display text-xl text-red-400">The Writers&apos; Room hit a wall</h1>
         <p className="text-sm text-faded mt-2">{event.error}</p>
+        <button className="btn mt-4" disabled={busy} onClick={reroll}>↻ Send it back to the room</button>
       </div>
     );
 
@@ -81,7 +89,9 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
         </div>
       )}
 
-      {event.status === "review" && <ReviewPanel event={event} eventId={eventId} onChanged={load} onStart={() => verb("start")} busy={busy} />}
+      {event.status === "review" && (
+        <ReviewPanel event={event} eventId={eventId} onChanged={load} onStart={() => verb("start")} onReroll={reroll} busy={busy} />
+      )}
 
       {(event.status === "live" || event.status === "finale") && beat && (
         <section className="grid lg:grid-cols-3 gap-4">
@@ -159,21 +169,21 @@ function GeneratingView({ event }: { event: MysteryEvent }) {
 }
 
 function ReviewPanel({
-  event, eventId, onChanged, onStart, busy,
-}: { event: MysteryEvent; eventId: string; onChanged: () => void; onStart: () => void; busy: boolean }) {
+  event, eventId, onChanged, onStart, onReroll, busy,
+}: { event: MysteryEvent; eventId: string; onChanged: () => void; onStart: () => void; onReroll: () => void; busy: boolean }) {
   const pkg = event.package!;
   const [refining, setRefining] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
-  async function refine(characterId: string) {
+  async function refine(characterId: string, instructionsOverride?: string) {
     setWorking(true);
     setNote(null);
     const res = await fetch(`/api/events/${eventId}/characters/${characterId}/refine`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instructions: instruction }),
+      body: JSON.stringify({ instructions: instructionsOverride ?? instruction }),
     });
     const data = await res.json();
     setNote(res.ok ? `✓ ${data.continuityNote}` : `✗ ${data.error?.message}`);
@@ -181,6 +191,9 @@ function ReviewPanel({
     setInstruction("");
     onChanged();
   }
+
+  const REGEN_INSTRUCTION =
+    "Reimagine this character from scratch: a new persona, voice, costume, and flavor. Keep their structural role in the mystery (secrets' relationship to the crime web, objectives' tension, facts other characters rely on) fully intact.";
 
   return (
     <div className="space-y-4">
@@ -238,9 +251,15 @@ function ReviewPanel({
                   </div>
                 </div>
               ) : (
-                <button className="btn-ghost !py-1 text-xs mt-3" onClick={() => { setRefining(c.id); setNote(null); }}>
-                  ✎ refine with the Writers&apos; Room
-                </button>
+                <div className="flex gap-2 mt-3">
+                  <button className="btn-ghost !py-1 text-xs" onClick={() => { setRefining(c.id); setNote(null); }}>
+                    ✎ refine
+                  </button>
+                  <button className="btn-ghost !py-1 text-xs" disabled={working}
+                    onClick={() => { setNote(null); refine(c.id, REGEN_INSTRUCTION); }}>
+                    ↻ regenerate
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -250,9 +269,14 @@ function ReviewPanel({
 
       <PlayerLinks event={event} eventId={eventId} />
 
-      <button className="btn w-full py-3 text-base" disabled={busy} onClick={onStart}>
-        ✓ Approve &amp; start the event
-      </button>
+      <div className="flex gap-3">
+        <button className="btn-ghost py-3" disabled={busy} onClick={onReroll} title="Keeps your theme, players, and genome — rewrites everything else">
+          ↻ Reroll story
+        </button>
+        <button className="btn flex-1 py-3 text-base" disabled={busy} onClick={onStart}>
+          ✓ Approve &amp; start the event
+        </button>
+      </div>
     </div>
   );
 }

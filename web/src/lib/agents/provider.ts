@@ -30,6 +30,12 @@ export interface WritersRoomProvider {
   ): Promise<{ character: Character; continuityNote: string }>;
   /** Independent quality review. */
   judge(ctx: GenerationContext, pkg: MysteryPackage): Promise<QualityReport>;
+  /**
+   * Revision pass: a gate failed and its critique goes back to the drafting
+   * agents (docs/03 §3, step 10's revise loop). Optional — providers without
+   * it fail closed at the gate.
+   */
+  revise?(ctx: GenerationContext, pkg: MysteryPackage, critique: string): Promise<MysteryPackage>;
 }
 
 export function makeCheckpoint(stage: PipelineStage, label: string, ok = true): Checkpoint {

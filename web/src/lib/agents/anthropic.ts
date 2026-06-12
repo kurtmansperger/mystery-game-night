@@ -215,6 +215,50 @@ async function refineCharacter(
   return result;
 }
 
+async function revise(ctx: GenerationContext, pkg: MysteryPackage, critique: string): Promise<MysteryPackage> {
+  const spine = {
+    title: pkg.title, logline: pkg.logline, tonalNorthStar: pkg.tonalNorthStar,
+    setting: pkg.setting, whyTonight: pkg.whyTonight, victim: pkg.victim,
+    solution: pkg.solution,
+  };
+  const critiqueBlock = `<critique>\nAn earlier draft failed an editorial gate. Fix EVERY issue below while preserving everything that works:\n${critique}\n</critique>`;
+
+  // Cast-stage failures (dead roles, culprit position) require recasting
+  // before the content pass; everything else is content-stage.
+  let characters = pkg.characters;
+  let culpritId = pkg.solution.culpritId;
+  if (/bystander|first four|culprit/i.test(critique)) {
+    const cast = await agentCall<{ culpritId: string; characters: Character[] }>(
+      "Character Writer (revision)",
+      ctx,
+      `${TASKS.cast}\n\nThis is a REVISION of the existing cast below — repair it, do not start over.\n<existing_cast>${JSON.stringify(pkg.characters)}</existing_cast>`,
+      `${hostInputBlock(ctx.config)}\n\n<story_bible_slice>${JSON.stringify(spine)}</story_bible_slice>\n\n${critiqueBlock}`,
+      castSchema
+    );
+    cast.characters.forEach((c, i) => (c.assignedPlayer = ctx.config.players[i]?.name));
+    characters = cast.characters;
+    culpritId = cast.culpritId;
+  }
+
+  const content = await agentCall<Pick<MysteryPackage, "evidence" | "beats" | "hintLadder" | "awards">>(
+    "Mystery Writer (revision)",
+    ctx,
+    `${TASKS.mysteryContent.replace("${acts}", String(ctx.derived.acts))}\n\nThis is a REVISION — the previous draft is below. Repair it against the critique; keep what works.\n<previous_draft>${JSON.stringify({ evidence: pkg.evidence, beats: pkg.beats })}</previous_draft>`,
+    `<story_bible_slice>${JSON.stringify({ spine, characters, culpritId })}</story_bible_slice>\n\n${critiqueBlock}`,
+    contentSchema
+  );
+
+  return {
+    ...pkg,
+    characters,
+    solution: { ...pkg.solution, culpritId },
+    evidence: content.evidence.map((e) => ({ ...e, falsifies: e.falsifies || undefined })),
+    beats: content.beats,
+    hintLadder: content.hintLadder,
+    awards: content.awards,
+  };
+}
+
 async function judge(ctx: GenerationContext, pkg: MysteryPackage): Promise<QualityReport> {
   // The judge sees only host/player-visible content plus the solution —
   // never the authoring rationale (anti-sycophancy, docs/03 §4.7).
@@ -237,4 +281,5 @@ export const anthropicProvider: WritersRoomProvider = {
   generate,
   refineCharacter,
   judge,
+  revise,
 };
