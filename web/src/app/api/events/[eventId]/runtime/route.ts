@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvent, saveEvent } from "@/lib/store";
+import { isHost } from "@/lib/access";
 
 // Host runtime verbs: start / advance / reveal / finale / complete.
 // Idempotent-ish for the prototype; production adds Idempotency-Key + audit
@@ -7,8 +8,8 @@ import { getEvent, saveEvent } from "@/lib/store";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  const event = getEvent(eventId);
-  if (!event?.package) {
+  const event = await getEvent(eventId);
+  if (!event?.package || !isHost(event, req)) {
     return NextResponse.json({ error: { code: "notFound", message: "Event not ready." } }, { status: 404 });
   }
   const pkg = event.package;
@@ -79,6 +80,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
       return NextResponse.json({ error: { code: "invalid", message: `Unknown op '${op}'.` } }, { status: 400 });
   }
 
-  saveEvent(event);
+  await saveEvent(event);
   return NextResponse.json({ ok: true, status: event.status, currentBeat: event.runtime.currentBeat });
 }

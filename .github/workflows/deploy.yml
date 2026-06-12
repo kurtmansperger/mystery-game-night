@@ -1,0 +1,82 @@
+name: Deploy to Cloud Run
+
+# Deploys both services (web + generator) from source via Cloud Build,
+# authenticated with Workload Identity Federation — no key files.
+# Prerequisite: infra/setup.sh has been run once and the four GCP_* repo
+# variables are set (the script prints them).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy generator service
+        run: |
+          gcloud run deploy mgn-generator --source web/ \
+            --project "$PROJECT_ID" --region "$REGION" --quiet \
+            --no-allow-unauthenticated \
+            --service-account "mgn-generator@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --memory 1Gi --cpu 1 --timeout 1800 --concurrency 2 --max-instances 5 \
+            --set-secrets "ANTHROPIC_API_KEY=anthropic-api-key:latest" \
+            --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},TASKS_SA_EMAIL=mgn-tasks@${PROJECT_ID}.iam.gserviceaccount.com"
+
+      - name: Wire generator URL + invoker
+        run: |
+          WORKER_URL=$(gcloud run services describe mgn-generator \
+            --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')
+          echo "WORKER_URL=$WORKER_URL" >> "$GITHUB_ENV"
+          # The worker verifies Cloud Tasks OIDC tokens against its own URL as audience.
+          gcloud run services update mgn-generator \
+            --project "$PROJECT_ID" --region "$REGION" --quiet \
+            --update-env-vars "WORKER_URL=$WORKER_URL"
+          # Only the tasks service account may invoke the generator.
+          gcloud run services add-iam-policy-binding mgn-generator \
+            --project "$PROJECT_ID" --region "$REGION" --quiet \
+            --member "serviceAccount:mgn-tasks@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --role roles/run.invoker
+
+      - name: Deploy web service
+        run: |
+          gcloud run deploy mgn-web --source web/ \
+            --project "$PROJECT_ID" --region "$REGION" --quiet \
+            --allow-unauthenticated \
+            --service-account "mgn-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+            --memory 1Gi --cpu 1 --timeout 600 --min-instances 0 --max-instances 10 \
+            --set-secrets "ANTHROPIC_API_KEY=anthropic-api-key:latest" \
+            --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},TASKS_QUEUE=generation,TASKS_LOCATION=${REGION},WORKER_URL=${WORKER_URL},TASKS_SA_EMAIL=mgn-tasks@${PROJECT_ID}.iam.gserviceaccount.com,REQUIRE_ACCESS_KEYS=1"
+
+      - name: Report URL
+        run: |
+          URL=$(gcloud run services describe mgn-web \
+            --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')
+          echo "## Deployed 🎉" >> "$GITHUB_STEP_SUMMARY"
+          echo "Web: $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Generator (private): $WORKER_URL" >> "$GITHUB_STEP_SUMMARY"

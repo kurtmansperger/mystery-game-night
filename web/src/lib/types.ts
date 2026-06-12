@@ -173,6 +173,9 @@ export type EventStatus =
 export interface MysteryEvent {
   id: string;
   status: EventStatus;
+  /** Link credentials: host link carries keys.host, player links carry keys.players[characterId].
+   *  Enforced when REQUIRE_ACCESS_KEYS=1 (production); open in local dev. */
+  keys: { host: string; players: Record<string, string> };
   config: EventConfig;
   genome: StoryGenome;
   derived: DerivedParams;

@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvent, saveEvent } from "@/lib/store";
 import { getProvider } from "@/lib/agents/provider";
+import { isHost } from "@/lib/access";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string; characterId: string }> }
 ) {
   const { eventId, characterId } = await params;
-  const event = getEvent(eventId);
-  if (!event?.package) {
+  const event = await getEvent(eventId);
+  if (!event?.package || !isHost(event, req)) {
     return NextResponse.json({ error: { code: "notFound", message: "Event not ready." } }, { status: 404 });
   }
   if (event.status !== "review") {
@@ -33,7 +34,7 @@ export async function POST(
     );
     const index = event.package.characters.findIndex((c) => c.id === characterId);
     event.package.characters[index] = character;
-    saveEvent(event);
+    await saveEvent(event);
     return NextResponse.json({ character, continuityNote });
   } catch (err) {
     return NextResponse.json(

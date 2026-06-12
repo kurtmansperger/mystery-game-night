@@ -1,12 +1,12 @@
 import type { MysteryEvent } from "../types";
-import { saveEvent } from "../store";
+import { newKey, saveEvent } from "../store";
 import { getProvider, makeCheckpoint } from "./provider";
 import { continuityGate } from "./validate";
 
-// Pipeline runner: generate → continuity gate → quality gate, with live
-// checkpoints written to the store so the host watches the room work.
-// In production this is a Cloud Run job writing to Firestore
-// (docs/02-technical-architecture.md §1); here it runs in-process.
+// Pipeline runner: generate → continuity gate (with revise loop) → quality
+// gate (one revision shot), with live checkpoints written to the store so the
+// host watches the room work. Runs inside the Cloud Tasks worker request in
+// production (docs/07 stage 3) or in-process locally.
 
 export async function runPipeline(event: MysteryEvent): Promise<void> {
   const ctx = { config: event.config, genome: event.genome, derived: event.derived };
@@ -15,11 +15,11 @@ export async function runPipeline(event: MysteryEvent): Promise<void> {
 
     let pkg = await provider.generate(ctx, (stage, label, ok = true) => {
       event.checkpoints.push(makeCheckpoint(stage, label, ok));
-      saveEvent(event);
+      void saveEvent(event); // best-effort progress write; ordering guaranteed by the store
     });
 
     event.checkpoints.push(makeCheckpoint("continuityGate", "The Continuity Editor is attacking the story..."));
-    saveEvent(event);
+    await saveEvent(event);
     let continuity = continuityGate(pkg);
 
     // Revise loop (docs/03 §3 step 10): the gate's critique goes back to the
@@ -33,7 +33,7 @@ export async function runPipeline(event: MysteryEvent): Promise<void> {
       event.checkpoints.push(
         makeCheckpoint("continuityGate", `The editor sent notes back to the room (revision ${attempt} of ${MAX_REVISIONS})...`)
       );
-      saveEvent(event);
+      await saveEvent(event);
       pkg = await provider.revise(ctx, pkg, critique);
       continuity = continuityGate(pkg);
     }
@@ -44,10 +44,10 @@ export async function runPipeline(event: MysteryEvent): Promise<void> {
       throw new Error(`Continuity gate failed after revisions: ${failures}`);
     }
     event.checkpoints.push(makeCheckpoint("continuityGate", "Continuity Editor signed off: solvable, fair, no dead roles."));
-    saveEvent(event);
+    await saveEvent(event);
 
     event.checkpoints.push(makeCheckpoint("qualityGate", "The Quality Judge is reading with a red pen..."));
-    saveEvent(event);
+    await saveEvent(event);
     let quality = await provider.judge(ctx, pkg);
 
     // One revision shot at a below-the-bar score, then ship the honest number.
@@ -55,7 +55,7 @@ export async function runPipeline(event: MysteryEvent): Promise<void> {
       event.checkpoints.push(
         makeCheckpoint("qualityGate", `Judge scored it ${quality.composite}/100 — one more pass through the room...`)
       );
-      saveEvent(event);
+      await saveEvent(event);
       const lowAxes = Object.entries(quality.scores)
         .filter(([, v]) => v < 70)
         .map(([k, v]) => `- Quality Judge scored ${k} at ${v}/100 — raise it.`)
@@ -79,12 +79,17 @@ export async function runPipeline(event: MysteryEvent): Promise<void> {
       )
     );
 
+    // Mint player link credentials for the assigned cast (reroll rotates them).
+    event.keys.players = Object.fromEntries(
+      pkg.characters.filter((c) => c.assignedPlayer).map((c) => [c.id, newKey()])
+    );
+
     event.package = pkg;
     event.status = "review";
-    saveEvent(event);
+    await saveEvent(event);
   } catch (err) {
     event.status = "failed";
     event.error = err instanceof Error ? err.message : String(err);
-    saveEvent(event);
+    await saveEvent(event);
   }
 }

@@ -51,7 +51,7 @@ export default function NewEvent() {
       setSubmitting(false);
       return;
     }
-    router.push(`/host/${data.id}`);
+    router.push(`/host/${data.id}?k=${data.hostKey}`);
   }
 
   return (

@@ -32,11 +32,15 @@ export default function PlayerPage({ params }: { params: Promise<{ eventId: stri
   const [accuseMotive, setAccuseMotive] = useState("");
   const [accuseMsg, setAccuseMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Player link credential (?k=...) — forwarded on every API call.
+  const [accessKey] = useState(() =>
+    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("k") ?? ""
+  );
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/events/${eventId}/player/${characterId}`);
+    const res = await fetch(`/api/events/${eventId}/player/${characterId}?k=${accessKey}`);
     if (res.ok) setView(await res.json());
-  }, [eventId, characterId]);
+  }, [eventId, characterId, accessKey]);
 
   useEffect(() => {
     load();
@@ -45,10 +49,10 @@ export default function PlayerPage({ params }: { params: Promise<{ eventId: stri
   }, [load]);
 
   async function submitAccusation() {
-    const res = await fetch(`/api/events/${eventId}/accuse`, {
+    const res = await fetch(`/api/events/${eventId}/accuse?k=${accessKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerName: view?.me.assignedPlayer, culpritId: accuseId, motive: accuseMotive }),
+      body: JSON.stringify({ characterId, culpritId: accuseId, motive: accuseMotive }),
     });
     const data = await res.json();
     setAccuseMsg(res.ok ? "Submitted. No edits after." : data.error?.message);

@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvent } from "@/lib/store";
+import { isPlayer } from "@/lib/access";
 
 // Player-scoped read: the server strips everything this player must not see —
 // other characters' private docs, unreleased evidence, the solution, other
 // players' accusations. UI hiding is not a control (docs/02 §4).
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ eventId: string; characterId: string }> }
 ) {
   const { eventId, characterId } = await params;
-  const event = getEvent(eventId);
-  if (!event?.package) {
+  const event = await getEvent(eventId);
+  if (!event?.package || !isPlayer(event, characterId, req)) {
     return NextResponse.json({ error: { code: "notFound", message: "Event not ready." } }, { status: 404 });
   }
   const pkg = event.package;

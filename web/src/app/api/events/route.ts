@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { EventConfig, MysteryEvent, StoryGenome } from "@/lib/types";
 import { defaultGenome, deriveParams } from "@/lib/genome";
-import { listEvents, newId, saveEvent } from "@/lib/store";
-import { runPipeline } from "@/lib/agents/orchestrator";
+import { listEvents, newId, newKey, saveEvent } from "@/lib/store";
+import { keysEnforced } from "@/lib/access";
+import { startGeneration } from "@/lib/generation";
 
 export async function GET() {
-  const events = listEvents().map((e) => ({
+  // With access keys enforced (public deployment), there is no anonymous
+  // event listing — links are the only way in. Open locally for convenience.
+  if (keysEnforced()) return NextResponse.json({ events: [] });
+  const events = (await listEvents()).map((e) => ({
     id: e.id,
     status: e.status,
     title: e.package?.title ?? e.config.theme,
@@ -44,6 +48,7 @@ export async function POST(req: NextRequest) {
   const event: MysteryEvent = {
     id: newId(),
     status: "generating",
+    keys: { host: newKey(), players: {} },
     config,
     genome,
     derived: deriveParams(config.modeBlend, config.runtimeMinutes),
@@ -51,11 +56,10 @@ export async function POST(req: NextRequest) {
     runtime: { currentBeat: -1, releasedEvidence: [], accusations: [], log: [] },
     createdAt: new Date().toISOString(),
   };
-  saveEvent(event);
+  await saveEvent(event);
 
-  // Fire-and-forget; the client follows progress via GET polling
-  // (Firestore listeners in production — docs/02 §2).
-  void runPipeline(event);
+  // Cloud Tasks queue in production; in-process locally (docs/07 stage 3).
+  await startGeneration(event);
 
-  return NextResponse.json({ id: event.id }, { status: 201 });
+  return NextResponse.json({ id: event.id, hostKey: event.keys.host }, { status: 201 });
 }

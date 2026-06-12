@@ -9,11 +9,15 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
   const [spoilers, setSpoilers] = useState(false);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Host link credential (?k=...) — forwarded on every API call.
+  const [accessKey] = useState(() =>
+    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("k") ?? ""
+  );
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/events/${eventId}`);
+    const res = await fetch(`/api/events/${eventId}?k=${accessKey}`);
     if (res.ok) setEvent(await res.json());
-  }, [eventId]);
+  }, [eventId, accessKey]);
 
   useEffect(() => {
     load();
@@ -23,7 +27,7 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
 
   async function verb(op: string, extra: Record<string, unknown> = {}) {
     setBusy(true);
-    await fetch(`/api/events/${eventId}/runtime`, {
+    await fetch(`/api/events/${eventId}/runtime?k=${accessKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op, ...extra }),
@@ -36,7 +40,7 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
 
   async function reroll() {
     setBusy(true);
-    await fetch(`/api/events/${eventId}/regenerate`, { method: "POST" });
+    await fetch(`/api/events/${eventId}/regenerate?k=${accessKey}`, { method: "POST" });
     await load();
     setBusy(false);
   }
@@ -90,7 +94,7 @@ export default function HostDashboard({ params }: { params: Promise<{ eventId: s
       )}
 
       {event.status === "review" && (
-        <ReviewPanel event={event} eventId={eventId} onChanged={load} onStart={() => verb("start")} onReroll={reroll} busy={busy} />
+        <ReviewPanel event={event} eventId={eventId} accessKey={accessKey} onChanged={load} onStart={() => verb("start")} onReroll={reroll} busy={busy} />
       )}
 
       {(event.status === "live" || event.status === "finale") && beat && (
@@ -169,8 +173,8 @@ function GeneratingView({ event }: { event: MysteryEvent }) {
 }
 
 function ReviewPanel({
-  event, eventId, onChanged, onStart, onReroll, busy,
-}: { event: MysteryEvent; eventId: string; onChanged: () => void; onStart: () => void; onReroll: () => void; busy: boolean }) {
+  event, eventId, accessKey, onChanged, onStart, onReroll, busy,
+}: { event: MysteryEvent; eventId: string; accessKey: string; onChanged: () => void; onStart: () => void; onReroll: () => void; busy: boolean }) {
   const pkg = event.package!;
   const [refining, setRefining] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
@@ -180,7 +184,7 @@ function ReviewPanel({
   async function refine(characterId: string, instructionsOverride?: string) {
     setWorking(true);
     setNote(null);
-    const res = await fetch(`/api/events/${eventId}/characters/${characterId}/refine`, {
+    const res = await fetch(`/api/events/${eventId}/characters/${characterId}/refine?k=${accessKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ instructions: instructionsOverride ?? instruction }),
@@ -332,7 +336,11 @@ function PlayerLinks({ event, eventId }: { event: MysteryEvent; eventId: string 
       <ul className="grid sm:grid-cols-2 gap-1 text-sm">
         {assigned.map((c) => (
           <li key={c.id}>
-            <a className="text-brass hover:text-brass-bright" href={`/player/${eventId}/${c.id}`} target="_blank" rel="noreferrer">
+            <a
+              className="text-brass hover:text-brass-bright"
+              href={`/player/${eventId}/${c.id}${event.keys?.players?.[c.id] ? `?k=${event.keys.players[c.id]}` : ""}`}
+              target="_blank" rel="noreferrer"
+            >
               {c.assignedPlayer} → plays {c.name} ↗
             </a>
           </li>

@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
+    "@google-cloud/tasks": "^6.2.3",
+    "firebase-admin": "^14.0.0",
+    "google-auth-library": "^10.7.0",
     "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

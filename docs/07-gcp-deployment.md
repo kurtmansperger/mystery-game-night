@@ -1,9 +1,49 @@
 # GCP Deployment Plan
 
+> **Implementation status:** Stages 1–3 (plus link-credential access control
+> from Stage 4) are **built and tested** — see "What's implemented" below.
+> Remaining user actions: run `infra/setup.sh`, set four GitHub variables,
+> merge to main. Stage 4's full Firebase Auth and Stage 5 are still to build.
+
 From the current prototype (Next.js, in-process generation, file-backed store)
 to the production architecture in [02-technical-architecture](./02-technical-architecture.md),
 in five independently shippable stages. Each stage leaves a working, demoable
 system.
+
+## What's implemented (and how to deploy it)
+
+| Piece | Where | Verified by |
+|---|---|---|
+| Container image (standalone Next.js, non-root, port 8080) | `web/Dockerfile` | standalone bundle boot + page/API probes |
+| Async store: Firestore backend (ADC, ordered write chains) + file backend for local dev | `web/src/lib/store/` | full event loop against the Firestore emulator, incl. cross-process persistence |
+| Queued generation: Cloud Tasks enqueue + private worker endpoint with OIDC / shared-secret verification | `web/src/lib/generation.ts`, `web/src/app/api/internal/generate/` | 403 unauth / 200 authed; idempotent re-delivery |
+| Link-credential access control (`REQUIRE_ACCESS_KEYS=1`): host key + per-player keys checked server-side on every route | `web/src/lib/access.ts` | negative + positive tests on every endpoint |
+| One-time GCP bootstrap (APIs, Firestore, secret, SAs, queue, WIF) | `infra/setup.sh` | bash -n + idempotent gcloud calls |
+| CI/CD: WIF-authenticated source deploys of both services | `.github/workflows/deploy.yml` | activates on merge to main |
+
+**To go live:**
+
+```bash
+# 1. One-time bootstrap (your machine, gcloud authed as project owner)
+ANTHROPIC_API_KEY=sk-ant-... ./infra/setup.sh YOUR_PROJECT_ID us-central1
+
+# 2. Add the four GCP_* repository variables it prints
+#    (GitHub → Settings → Secrets and variables → Actions → Variables)
+
+# 3. Merge this branch to main (activates the deploy workflow), or run
+#    the "Deploy to Cloud Run" workflow manually from the Actions tab.
+```
+
+**Runtime environment variables** (set by the deploy workflow):
+
+| Var | Service | Purpose |
+|---|---|---|
+| `GOOGLE_CLOUD_PROJECT` | both | selects the Firestore store backend |
+| `ANTHROPIC_API_KEY` (secret) | both | live Writers' Room (web needs it for refinement) |
+| `TASKS_QUEUE` / `TASKS_LOCATION` / `WORKER_URL` / `TASKS_SA_EMAIL` | web | enqueue generation to the worker |
+| `WORKER_URL` + `TASKS_SA_EMAIL` | generator | OIDC audience + expected caller for worker auth |
+| `REQUIRE_ACCESS_KEYS=1` | web | enforce host/player link credentials |
+| `INTERNAL_SHARED_SECRET` | optional | worker auth alternative for non-OIDC setups |
 
 **Target project layout:** one GCP project per environment (`mgn-staging`,
 `mgn-prod`), Firebase enabled on both, region `us-central1` (or nearest to
