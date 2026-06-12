@@ -11,6 +11,19 @@ import { systemPrompt, hostInputBlock, TASKS } from "./prompts";
 const MODEL = "claude-opus-4-8";
 const client = new Anthropic();
 
+// Per-call usage telemetry — the prototype slice of the pipeline tracing
+// described in docs/02 §6. Consumed by scripts/live-smoke.ts for real
+// cost-per-story numbers.
+export interface AgentUsage {
+  role: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreateTokens: number;
+  ms: number;
+}
+export const usageLog: AgentUsage[] = [];
+
 // — JSON-schema helpers (structured outputs require additionalProperties:false) —
 type Schema = Record<string, unknown>;
 const str: Schema = { type: "string" };
@@ -101,6 +114,7 @@ const judgeSchema = obj({
 const refineSchema = obj({ character: characterSchema, continuityNote: str });
 
 async function agentCall<T>(role: string, ctx: GenerationContext, task: string, context: string, schema: Schema): Promise<T> {
+  const startedAt = Date.now();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 32000,
@@ -110,6 +124,14 @@ async function agentCall<T>(role: string, ctx: GenerationContext, task: string, 
     messages: [{ role: "user", content: `${context}\n\n${task}` }],
   });
   const message = await stream.finalMessage();
+  usageLog.push({
+    role,
+    inputTokens: message.usage.input_tokens,
+    outputTokens: message.usage.output_tokens,
+    cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+    cacheCreateTokens: message.usage.cache_creation_input_tokens ?? 0,
+    ms: Date.now() - startedAt,
+  });
   if (message.stop_reason === "refusal") {
     throw new Error("The model declined this generation request. Adjust the theme or tone and retry.");
   }

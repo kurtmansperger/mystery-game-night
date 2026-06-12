@@ -1,0 +1,36 @@
+name: Live pipeline smoke test
+
+# Runs the real Claude Writers' Room once and reports story quality and
+# per-call cost in the job summary. Triggers are deliberately narrow —
+# each run costs real API spend (~$1).
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - ".github/workflows/live-pipeline.yml"
+      - "web/scripts/**"
+
+concurrency:
+  group: live-pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Generate one live story and price it
+        run: npm run smoke:live
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
