@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #16120e;
+  --color-panel: #211b15;
+  --color-panel2: #2b231b;
+  --color-line: #3d3328;
+  --color-parchment: #efe6d5;
+  --color-faded: #b3a68f;
+  --color-brass: #d4a04c;
+  --color-brass-bright: #f0c473;
+  --color-wine: #7e2d3c;
+  --font-display: Georgia, "Times New Roman", serif;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-parchment);
+  background-image: radial-gradient(ellipse at top, #241c13 0%, #16120e 65%);
+  min-height: 100vh;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.card {
+  @apply bg-panel border border-line rounded-xl p-4;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+    bg-brass text-ink hover:bg-brass-bright transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+    border border-line text-parchment hover:border-brass transition-colors disabled:opacity-40 cursor-pointer;
+}
+
+.input {
+  @apply w-full rounded-lg bg-panel2 border border-line px-3 py-2 text-sm text-parchment
+    placeholder:text-faded/60 focus:outline-none focus:border-brass;
+}
+
+.label {
+  @apply block text-xs uppercase tracking-widest text-faded mb-1;
+}
